@@ -6,6 +6,7 @@ import logging
 import signal
 import traceback
 import smtplib
+import sys
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
@@ -39,7 +40,7 @@ class VastAIBot:
     def __init__(self):
         self.previous_status: Dict[str, Any] = {}
         self.vast_accounts: Dict[str, Any] = {}
-        self.shutdown_event = asyncio.Event()
+        self.shutdown_requested = False
 
     @staticmethod
     def load_json(file_path: str) -> Dict[str, Any]:
@@ -326,7 +327,7 @@ class VastAIBot:
     async def monitor_servers(self) -> None:
         async with aiohttp.ClientSession() as session:
             try:
-                while not self.shutdown_event.is_set():
+                while not self.shutdown_requested:
                     # Load the previous status and account data at each loop iteration to ensure they are up to date
                     self.previous_status = self.load_json(STATUS_FILE)
                     self.vast_accounts = self.load_json(CONFIG_FILE)
@@ -339,27 +340,34 @@ class VastAIBot:
                     logging.info(
                         f"Loop completed. Next loop in {CHECK_INTERVAL} seconds."
                     )
-                    try:
-                        await asyncio.wait_for(
-                            self.shutdown_event.wait(), timeout=CHECK_INTERVAL
-                        )
-                    except asyncio.TimeoutError:
-                        continue
+                    
+                    # Simple sleep instead of complex event handling
+                    for i in range(CHECK_INTERVAL):
+                        if self.shutdown_requested:
+                            break
+                        await asyncio.sleep(1)
+                        
+            except Exception as e:
+                logging.error(f"Error in monitor_servers: {e}")
             finally:
                 await session.close()
 
-    def handle_shutdown(self) -> None:
-        logging.info("Shutdown signal received.")
-        self.shutdown_event.set()
+    def handle_shutdown(self, signum, frame):
+        logging.info(f"Shutdown signal {signum} received.")
+        self.shutdown_requested = True
 
     async def main(self) -> None:
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, self.handle_shutdown)
+        # Set up signal handlers
+        signal.signal(signal.SIGINT, self.handle_shutdown)
+        signal.signal(signal.SIGTERM, self.handle_shutdown)
 
         self.send_email(f"VastAI Bot Started", f"🟢 VastAIBot v{VERSION} started successfully")
         try:
             await self.monitor_servers()
+        except KeyboardInterrupt:
+            logging.info("Keyboard interrupt received")
+        except Exception as e:
+            logging.error(f"Error in main: {e}")
         finally:
             self.send_email(f"VastAI Bot Stopped", f"🔴 VastAIBot v{VERSION} stopped")
 
