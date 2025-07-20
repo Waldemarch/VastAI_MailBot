@@ -1,5 +1,4 @@
-# VastAI_MailBot
- - Email Monitoring
+# VastAI MailBot - Email Monitoring
 
 A Python bot that monitors your Vast.ai servers and sends email notifications about status changes, rentals, and pricing updates.
 
